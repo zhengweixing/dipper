@@ -52,7 +52,3 @@ init([]) ->
     ],
     ets:new(?ETS, [public, named_table, {write_concurrency, true}, {read_concurrency, true}]),
     {ok, {SupFlags, Children}}.
-
-%%%===================================================================
-%%% Internal functions
-%%%===================================================================

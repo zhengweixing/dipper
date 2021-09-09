@@ -23,11 +23,6 @@ start_link() ->
 %%% Supervisor callbacks
 %%%===================================================================
 
-%% @private
-%% @doc Whenever a supervisor is started using supervisor:start_link/[2,3],
-%% this function is called by the new process to find out about
-%% restart strategy, maximum restart frequency and child
-%% specifications.
 -spec(init(Args :: term()) ->
     {ok, {SupFlags :: {RestartStrategy :: supervisor:strategy(),
         MaxR :: non_neg_integer(), MaxT :: non_neg_integer()},
@@ -50,7 +45,3 @@ init([]) ->
         modules => [dipper_client]
     },
     {ok, {SupFlags, [AChild]}}.
-
-%%%===================================================================
-%%% Internal functions
-%%%===================================================================

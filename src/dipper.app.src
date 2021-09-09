@@ -1,5 +1,5 @@
 {application, dipper,
- [{description, "Service register & watch for Erlang"},
+ [{description, "Service register & watch"},
   {vsn, "0.1.0"},
   {registered, []},
   {mod, {dipper_app, []}},

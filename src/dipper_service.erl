@@ -9,9 +9,6 @@
 -record(state, {key, value, id, pid,  driver, ref, opt}).
 -define(SERVER(Name), list_to_atom(lists:concat([Name, '_service']))).
 
-%%%===================================================================
-%%% API
-%%%===================================================================
 -type service() :: function() | {M :: module(), F :: atom(), A :: list()}.
 -type opt() :: {ttl, integer()} | {keepalive, integer()} | {service, service()} | {driver, etcdc_driver | module()}.
 -spec(register(Name :: atom(), Key :: binary, Value :: binary(), Opt :: [opt()]) ->
@@ -80,8 +77,8 @@ handle_info(register, #state{key = Key, value = Value, opt = Opts, driver = Driv
             TRef = erlang:send_after(KeepAliveInterval, self(), heartbeat),
             {noreply, State#state{id = LeaseId, ref = TRef}};
         {error, Reason} ->
+            logger:error("Register Key(~p) error: ~p", [Key, Reason]),
             erlang:send_after(KeepAliveInterval, self(), register),
-            io:format("Register server error, Key:~p, Reason:~p~n", [Key, Reason]),
             {noreply, State#state{id = undefined, ref = undefined}}
     end;
 
@@ -90,13 +87,12 @@ handle_info(heartbeat, #state{key = Key, id = LeaseId, opt = Opts, driver = Driv
     KeepAliveInterval = timer:seconds(min(TTL, proplists:get_value(keepalive, Opts, TTL))),
     case Driver:keepalive(LeaseId) of
         {ok, 0} ->
-            io:format("1 Register server error, Key:~p, Reason 0 :~p~n", [Key, LeaseId]),
             handle_cast(register, State);
         {ok, _TTL} ->
             TRef = erlang:send_after(KeepAliveInterval, self(), heartbeat),
             {noreply, State#state{ref = TRef}};
         {error, Reason} ->
-            io:format("2 Register server error, Key:~p, Reason:~p~n", [Key, Reason]),
+            logger:error("Register Key(~p) error: ~p", [Key, Reason]),
             erlang:send_after(KeepAliveInterval, self(), register),
             {noreply, State#state{id = undefined, ref = undefined}}
     end;
@@ -108,7 +104,7 @@ handle_info({'EXIT', Pid, Reason}, State) ->
                 {ok, NewState} ->
                     {noreply, NewState};
                 {error, Why} ->
-                    lager:error("Service exit, Reason:~p, try start service error:~p", [Reason, Why]),
+                    logger:error("Service exit, Reason:~p, try start service error:~p", [Reason, Why]),
                     {stop, normal, hand_unregister(State)}
             end;
         _ ->
@@ -123,10 +119,6 @@ terminate(_Reason, _State = #state{}) ->
 
 code_change(_OldVsn, State = #state{}, _Extra) ->
     {ok, State}.
-
-%%%===================================================================
-%%% Internal functions
-%%%===================================================================
 
 do_callback(State = #state{opt = Opts}) ->
     Callback =

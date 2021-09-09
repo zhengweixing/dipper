@@ -4,7 +4,6 @@
 
 %% API
 -export([start_link/1]).
-%% gen_statem callbacks
 -export([init/1, idle/3, watching/3, callback_mode/0]).
 
 -export_type([key/0, range_end/0, func/0, mf/0]).
@@ -29,15 +28,6 @@
 %%% API
 %%%===================================================================
 
-%%--------------------------------------------------------------------
-%% @doc
-%% Creates a gen_statem process which calls Module:init/1 to
-%% initialize. To ensure a synchronized start-up procedure, this
-%% function does not return until Module:init/1 has returned.
-%%
-%% @spec start_link() -> {ok, Pid} | ignore | {error, Error}
-%% @end
-%%--------------------------------------------------------------------
 -spec start_link(list()) -> gen_statem:start_ret().
 start_link(Args) ->
     gen_statem:start_link(?MODULE, Args, []).
@@ -70,7 +60,7 @@ idle(state_timeout, create_stream, StateData) ->
         {ok, Conn} ->
             new_stream(Conn, StateData);
         {error, empty_conn} ->
-            lager:error("there is no grpc connection"),
+            logger:error("there is no grpc connection"),
             {repeat_state_and_data, Action}
     end;
 idle(EventType, EventContent, StateData) ->
@@ -89,16 +79,16 @@ watching(state_timeout, watch, StateData = #state{mf = MF, stream = Stream}) ->
     WatchAction = {next_event, state_timeout, watch},
     case grpc_client:rcv(Stream) of
         eof ->
-            lager:info("etcdc watch is ended: ~p", [StateData]),
+            logger:info("etcdc watch is ended: ~p", [StateData]),
             {stop, {shutdown, normal}, StateData};
         {error, Reason} ->
-            lager:error("etcdc watch data error ~p, StateData: ~p", [Reason, StateData]),
+            logger:error("etcdc watch data error ~p, StateData: ~p", [Reason, StateData]),
             {next_state, idle, StateData, CreateStreamAction};
         {headers, Headers} ->
-            lager:info("etcdc watch rec header ~p, StateData: ~p ", [Headers, StateData]),
+            logger:info("etcdc watch rec header ~p, StateData: ~p ", [Headers, StateData]),
             {repeat_state_and_data, WatchAction};
         {data, Data} ->
-            lager:info("etcdc watch rec data ~p, StateData: ~p", [Data, StateData]),
+            logger:info("etcdc watch rec data ~p, StateData: ~p", [Data, StateData]),
             case MF of
                 {M, F} -> M:F(Data);
                 {M, F, A} -> apply(M, F, A ++ [Data])
@@ -116,11 +106,11 @@ watching(EventType, EventContent, StateData) ->
     | repeat_state_and_data,
     Action :: gen_statem:action().
 handle_event(info, {'EXIT', _, _} = ConnExitEvent, StateName, StateData) ->
-    lager:info("etcdc watch rcv conn exit: ~p, State: ~p, Data: ~p",
+    logger:info("etcdc watch rcv conn exit: ~p, State: ~p, Data: ~p",
         [ConnExitEvent, StateName, StateData]),
     {next_state, idle, StateData, {state_timeout, 2000, create_stream}};
 handle_event(EventType, EventContent, StateName, StateData) ->
-    lager:info("EventType : ~p, Content: ~p, StateName: ~p, Data : ~p",
+    logger:info("EventType : ~p, Content: ~p, StateName: ~p, Data : ~p",
         [{EventType, EventContent, StateName, StateData}]),
     repeat_state_and_data.
 
@@ -155,7 +145,7 @@ new_stream(Connection, StateData = #state{key = Key, range_end = RangeEnd}) ->
                     {repeat_state_and_data, Action}
             end;
         {error, _Reason} ->
-            lager:error("there is no grpc connection"),
+            logger:error("there is no grpc connection"),
             {repeat_state_and_data, Action}
     end.
 

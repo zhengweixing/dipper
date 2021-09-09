@@ -1,6 +1,6 @@
 # dipper
 
-集成进程池，gen_rpc, grpc的服务发现与注册的插件, 可使用etcd,redis,ZooKeeper等第三方服务。
+集成进程池，gen_rpc, grpc 的服务发现与注册的插件, 可使用 etcd, redis, ZooKeeper 等第三方服务。
 
 ## 注册服务
 ```erlang
@@ -10,17 +10,17 @@ register_gen_rpc_service(Port) ->
     Key = <<"gen_rpc">>,
     dipper_service:register(Name, Key, jsx:encode(#{ port => Port }), Opts).
 ```
-如果当前节点为test@127.0.0.1 则上面最终会注册到key: gen_rpc/test_web/test@127.0.0.1
+如果当前节点为 test@127.0.0.1 则上面最终会注册到 key: `gen_rpc/test_web/test@127.0.0.1`
+
 
 ## watch服务
 
-如果注册服务以grpc,gen_rpc2,gen_rpc开头，以${node}结尾时，则按下表启动相应的客户端
+如果注册服务以 grpc,gen_rpc2,gen_rpc开头，以${node}结尾时，则按下表启动相应的客户端
 
 |key|参数|描述|
 |:---|:---|:---|
 |grpc/.../${Node}|host,port,decoder,size,auto_reconnect|自动启动grpc客户端|
-|gen_rpc2/.../${Node}|port,size,auto_reconnect|自动启动能够双向通信的gen_rpc客户端|
-|gen_rpc/.../${Node}|port,size,auto_reconnect|启动gen_rpc客户端|
+|gen_rpc/.../${Node}|port,size,auto_reconnect|自动启动能够双向通信的gen_rpc客户端|
 
 参数说明
 
