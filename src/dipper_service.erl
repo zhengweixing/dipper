@@ -5,6 +5,7 @@
 %% API
 -export([register/4, unregister/1]).
 
+%% gen_server callbacks
 -export([start_link/4, init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 -record(state, {key, value, id, pid,  driver, ref, opt}).
 -define(SERVER(Name), list_to_atom(lists:concat([Name, '_service']))).
@@ -90,13 +91,13 @@ handle_info(heartbeat, #state{key = Key, id = LeaseId, opt = Opts, driver = Driv
     KeepAliveInterval = timer:seconds(min(TTL, proplists:get_value(keepalive, Opts, TTL))),
     case Driver:keepalive(LeaseId) of
         {ok, 0} ->
-            io:format("1 Register server error, Key:~p, Reason 0 :~p~n", [Key, LeaseId]),
+            io:format("Register server error, Key:~p, Reason:~p~n", [Key, 0]),
             handle_cast(register, State);
         {ok, _TTL} ->
             TRef = erlang:send_after(KeepAliveInterval, self(), heartbeat),
             {noreply, State#state{ref = TRef}};
         {error, Reason} ->
-            io:format("2 Register server error, Key:~p, Reason:~p~n", [Key, Reason]),
+            io:format("Register server error, Key:~p, Reason:~p~n", [Key, Reason]),
             erlang:send_after(KeepAliveInterval, self(), register),
             {noreply, State#state{id = undefined, ref = undefined}}
     end;
@@ -149,6 +150,6 @@ do_callback(State = #state{opt = Opts}) ->
 
 hand_unregister(#state{key = Key, ref = TRef, driver = Driver} = State) ->
     TRef =/= undefined andalso erlang:cancel_timer(TRef),
-    {Path, EndPath} = Driver:get_range(Key),
+    {Path, EndPath} = Driver:prefixed(Key),
     Driver:delete_range(Path, EndPath),
     State#state{ pid = undefined }.
