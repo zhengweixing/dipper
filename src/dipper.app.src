@@ -1,0 +1,16 @@
+{application, dipper,
+ [{description, "Service register & watch for Erlang"},
+  {vsn, "0.1.0"},
+  {registered, []},
+  {mod, {dipper_app, []}},
+  {applications,
+   [kernel,
+    stdlib,
+    etcdc
+   ]},
+  {env,[]},
+  {modules, []},
+
+  {licenses, ["Apache 2.0"]},
+  {links, []}
+ ]}.
