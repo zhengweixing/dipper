@@ -1,0 +1,15 @@
+{application, dipper,
+ [{description, "Service register & watch"},
+  {vsn, "0.1.0"},
+  {registered, []},
+  {mod, {dipper_app, []}},
+  {applications,
+   [kernel,
+    stdlib
+   ]},
+  {env,[{driver, eetcd_driver}]},
+  {modules, []},
+
+  {licenses, ["Apache 2.0"]},
+  {links, []}
+ ]}.
