@@ -91,13 +91,13 @@ handle_info(heartbeat, #state{key = Key, id = LeaseId, opt = Opts, driver = Driv
     KeepAliveInterval = timer:seconds(min(TTL, proplists:get_value(keepalive, Opts, TTL))),
     case Driver:keepalive(LeaseId) of
         {ok, 0} ->
-            io:format("Register server error, Key:~p, Reason:~p~n", [Key, 0]),
+            io:format("1 Register server error, Key:~p, Reason 0 :~p~n", [Key, LeaseId]),
             handle_cast(register, State);
         {ok, _TTL} ->
             TRef = erlang:send_after(KeepAliveInterval, self(), heartbeat),
             {noreply, State#state{ref = TRef}};
         {error, Reason} ->
-            io:format("Register server error, Key:~p, Reason:~p~n", [Key, Reason]),
+            io:format("2 Register server error, Key:~p, Reason:~p~n", [Key, Reason]),
             erlang:send_after(KeepAliveInterval, self(), register),
             {noreply, State#state{id = undefined, ref = undefined}}
     end;
@@ -150,6 +150,6 @@ do_callback(State = #state{opt = Opts}) ->
 
 hand_unregister(#state{key = Key, ref = TRef, driver = Driver} = State) ->
     TRef =/= undefined andalso erlang:cancel_timer(TRef),
-    {Path, EndPath} = Driver:prefixed(Key),
+    {Path, EndPath} = Driver:get_range(Key),
     Driver:delete_range(Path, EndPath),
     State#state{ pid = undefined }.
