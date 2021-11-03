@@ -5,7 +5,6 @@
 %% API
 -export([register/4, unregister/1]).
 
-%% gen_server callbacks
 -export([start_link/4, init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 -record(state, {key, value, id, pid,  driver, ref, opt}).
 -define(SERVER(Name), list_to_atom(lists:concat([Name, '_service']))).
