@@ -29,26 +29,26 @@ start_link() ->
         [ChildSpec :: supervisor:child_spec()]}}
     | ignore | {error, Reason :: term()}).
 init([]) ->
-    MaxRestarts = 1000,
-    MaxSecondsBetweenRestarts = 3600,
-    SupFlags = #{
-        strategy => one_for_one,
-        intensity => MaxRestarts,
-        period => MaxSecondsBetweenRestarts
-    },
+    ets:new(?ETS, [public, named_table, {write_concurrency, true}, {read_concurrency, true}]),
+    {ok, Driver} = application:get_env(dipper, driver),
+    ok = Driver:start(),
     Children = [
         #{
             id => dipper_service_sup,
-            start => {dipper_service_sup, start_link, []},
+            start => {dipper_service_sup, start_link, [Driver]},
             restart => permanent, shutdown => 2000, type => supervisor,
             modules => [dipper_service_sup]
         },
         #{
             id => dipper_client_sup,
-            start => {dipper_client_sup, start_link, []},
+            start => {dipper_client_sup, start_link, [Driver]},
             restart => permanent, shutdown => 2000, type => supervisor,
             modules => [dipper_client_sup]
         }
     ],
-    ets:new(?ETS, [public, named_table, {write_concurrency, true}, {read_concurrency, true}]),
+    SupFlags = #{
+        strategy => one_for_one,
+        intensity => 1000,
+        period => 3600
+    },
     {ok, {SupFlags, Children}}.

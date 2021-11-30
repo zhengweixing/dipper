@@ -5,10 +5,9 @@
   {mod, {dipper_app, []}},
   {applications,
    [kernel,
-    stdlib,
-    etcdc
+    stdlib
    ]},
-  {env,[]},
+  {env,[{driver, eetcd_driver}]},
   {modules, []},
 
   {licenses, ["Apache 2.0"]},

@@ -5,12 +5,12 @@
 %% API
 -export([register/4, unregister/1]).
 
--export([start_link/4, init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
--record(state, {key, value, id, pid,  driver, ref, opt}).
+-export([start_link/5, init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
+-record(state, {key, value, id, pid, driver, ref, opt}).
 -define(SERVER(Name), list_to_atom(lists:concat([Name, '_service']))).
 
 -type service() :: function() | {M :: module(), F :: atom(), A :: list()}.
--type opt() :: {ttl, integer()} | {keepalive, integer()} | {service, service()} | {driver, etcdc_driver | module()}.
+-type opt() :: {ttl, integer()} | {keepalive, integer()} | {service, service()}.
 -spec(register(Name :: atom(), Key :: binary, Value :: binary(), Opt :: [opt()]) ->
     {ok, pid()}  | {error, Reason :: term()}).
 
@@ -21,7 +21,7 @@ register(Name, Key, Value, Opt) ->
     supervisor:start_child(dipper_service_sup, [Name, NewKey, Value, Opt]).
 
 
--spec unregister(Name::atom()) -> ok.
+-spec unregister(Name :: atom()) -> ok.
 unregister(Name) ->
     case is_pid(whereis(?SERVER(Name))) of
         false ->
@@ -31,13 +31,13 @@ unregister(Name) ->
     end.
 
 
-start_link(Name, Key, Value, Opt) ->
-    gen_server:start_link({local, ?SERVER(Name)}, ?MODULE, [Key, Value, Opt], []).
+start_link(Driver, Name, Key, Value, Opts) ->
+    gen_server:start_link({local, ?SERVER(Name)}, ?MODULE, [Key, Value, [{driver, Driver} | Opts]], []).
 
 
 init([Key, Value, Opts]) ->
     process_flag(trap_exit, true),
-    Driver = proplists:get_value(driver, Opts, etcdc_driver),
+    Driver = proplists:get_value(driver, Opts),
     State = #state{
         driver = Driver,
         key = Key,
@@ -141,6 +141,5 @@ do_callback(State = #state{opt = Opts}) ->
 
 hand_unregister(#state{key = Key, ref = TRef, driver = Driver} = State) ->
     TRef =/= undefined andalso erlang:cancel_timer(TRef),
-    {Path, EndPath} = Driver:get_range(Key),
-    Driver:delete_range(Path, EndPath),
-    State#state{ pid = undefined }.
+    Driver:unregister(Key),
+    State#state{pid = undefined}.
