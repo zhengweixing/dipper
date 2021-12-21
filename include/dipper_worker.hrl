@@ -1,2 +1,0 @@
--define(ETS, dipper_worker).
--define(Driver, etcdc_driver).

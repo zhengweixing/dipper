@@ -1,67 +1,52 @@
 -module(dipper_service).
--include("dipper.hrl").
 -behaviour(gen_server).
 
-%% API
--export([register/4, unregister/1]).
+-define(BLOCK, 3).
 
--export([start_link/5, init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
--record(state, {key, value, id, pid, driver, ref, opt}).
+%% API
+-export([register/3, unregister/1]).
+
+-export([start_link/3, init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
+-record(state, {driver, next_ref, child_state, count = 0}).
 -define(SERVER(Name), list_to_atom(lists:concat([Name, '_service']))).
 
--type service() :: function() | {M :: module(), F :: atom(), A :: list()}.
--type opt() :: {ttl, integer()} | {keepalive, integer()} | {service, service()}.
--spec(register(Name :: atom(), Key :: binary, Value :: binary(), Opt :: [opt()]) ->
-    {ok, pid()}  | {error, Reason :: term()}).
-
-register(Name, Key, Value, Opt) ->
-    BinNode = atom_to_binary(node()),
-    BinName = atom_to_binary(Name),
-    NewKey = <<Key/binary, "/", BinName/binary, "/", BinNode/binary>>,
-    supervisor:start_child(dipper_service_sup, [Name, NewKey, Value, Opt]).
-
+-spec register(Driver, Name, WorkerArgs) -> supervisor:startlink_ret() when
+    Driver :: module(),
+    Name :: atom(),
+    WorkerArgs :: any().
+register(Driver, Name, WorkerArgs) ->
+    supervisor:start_child(dipper_service, [Driver, Name, WorkerArgs]).
 
 -spec unregister(Name :: atom()) -> ok.
 unregister(Name) ->
-    case is_pid(whereis(?SERVER(Name))) of
-        false ->
-            ok;
-        true ->
-            gen_server:call(?SERVER(Name), unregister)
-    end.
+    gen_server:call(?SERVER(Name), unregister).
 
 
-start_link(Driver, Name, Key, Value, Opts) ->
-    gen_server:start_link({local, ?SERVER(Name)}, ?MODULE, [Key, Value, [{driver, Driver} | Opts]], []).
+start_link(Driver, Name, WorkerArgs) ->
+    gen_server:start_link({local, ?SERVER(Name)}, ?MODULE, [Driver, Name, WorkerArgs], []).
 
 
-init([Key, Value, Opts]) ->
-    process_flag(trap_exit, true),
-    Driver = proplists:get_value(driver, Opts),
+init([Driver, Name, WorkerArgs]) ->
     State = #state{
-        driver = Driver,
-        key = Key,
-        value = Value,
-        opt = proplists:delete(driver, Opts)
+        driver = Driver
     },
-    case do_callback(State) of
-        {ok, NewState} ->
-            self() ! register,
-            {ok, NewState};
+    case Driver:register(Name, WorkerArgs) of
+        {ok, ChildState} ->
+            TTL = maps:get(ttl, WorkerArgs, 60),
+            After = erlang:max(round(TTL / ?BLOCK), 1) * 1000,
+            TimeRef = schedule_next_keep_alive(Driver, After),
+            {ok, State#state{next_ref = TimeRef, child_state = ChildState}};
         {error, Reason} ->
             {stop, Reason}
     end.
 
-handle_call(unregister, _From, #state{pid = Pid} = State) ->
-    NewState = hand_unregister(State),
-    case is_pid(Pid) andalso is_process_alive(Pid) of
-        true ->
-            erlang:unlink(Pid),
-            exit(Pid, normal);
-        false ->
-            ok
-    end,
-    {stop, normal, ok, NewState};
+handle_call(unregister, _From, #state{driver = Driver} = State) ->
+    case Driver:unregister(State#state.child_state) of
+        ok ->
+            {stop, normal, ok, State};
+        {error, Reason} ->
+            {ok, {error, Reason}, State}
+    end;
 
 handle_call(_Request, _From, State = #state{}) ->
     {reply, ok, State}.
@@ -69,77 +54,35 @@ handle_call(_Request, _From, State = #state{}) ->
 handle_cast(_Request, State = #state{}) ->
     {noreply, State}.
 
-handle_info(register, #state{key = Key, value = Value, opt = Opts, driver = Driver} = State) ->
-    TTL = proplists:get_value(ttl, Opts, 60),
-    KeepAliveInterval = timer:seconds(min(TTL, proplists:get_value(keepalive, Opts, TTL))),
-    case Driver:register(Key, Value, TTL) of
-        {ok, LeaseId} ->
-            TRef = erlang:send_after(KeepAliveInterval, self(), heartbeat),
-            {noreply, State#state{id = LeaseId, ref = TRef}};
+
+handle_info({keep_alive, Next}, #state{driver = Driver, count = Count } = State) ->
+    TimeRef = schedule_next_keep_alive(Next),
+    case Driver:keepalive(State#state.child_state) of
+        {ok, ChildState} ->
+            {noreply, State#state{count = 0, child_state = ChildState, next_ref = TimeRef}};
         {error, Reason} ->
-            logger:error("Register Key(~p) error: ~p", [Key, Reason]),
-            erlang:send_after(KeepAliveInterval, self(), register),
-            {noreply, State#state{id = undefined, ref = undefined}}
+            logger:error("keepalive error, ~p ~p", [State#state.child_state, Reason]),
+            case Count + 1 > 2 of
+                true ->
+                    {stop, keep_alive_error, State};
+                false ->
+                    {noreply, State#state{count = Count + 1, next_ref = TimeRef}}
+            end
     end;
 
-handle_info(heartbeat, #state{key = Key, id = LeaseId, opt = Opts, driver = Driver} = State) ->
-    TTL = proplists:get_value(ttl, Opts, 60),
-    KeepAliveInterval = timer:seconds(min(TTL, proplists:get_value(keepalive, Opts, TTL))),
-    case Driver:keepalive(LeaseId) of
-        {ok, 0} ->
-            handle_cast(register, State);
-        {ok, _TTL} ->
-            TRef = erlang:send_after(KeepAliveInterval, self(), heartbeat),
-            {noreply, State#state{ref = TRef}};
-        {error, Reason} ->
-            logger:error("Register Key(~p) error: ~p", [Key, Reason]),
-            erlang:send_after(KeepAliveInterval, self(), register),
-            {noreply, State#state{id = undefined, ref = undefined}}
-    end;
-
-handle_info({'EXIT', Pid, Reason}, State) ->
-    case State#state.pid of
-        Pid ->
-            case do_callback(State) of
-                {ok, NewState} ->
-                    {noreply, NewState};
-                {error, Why} ->
-                    logger:error("Service exit, Reason:~p, try start service error:~p", [Reason, Why]),
-                    {stop, normal, hand_unregister(State)}
-            end;
-        _ ->
-            {noreply, State}
-    end;
-handle_info(_Info, State = #state{}) ->
+handle_info(_Info, State) ->
     {noreply, State}.
 
-
-terminate(_Reason, _State = #state{}) ->
+terminate(_Reason, #state{}) ->
     ok.
 
 code_change(_OldVsn, State = #state{}, _Extra) ->
     {ok, State}.
 
-do_callback(State = #state{opt = Opts}) ->
-    Callback =
-        fun() ->
-            case proplists:get_value(service, Opts) of
-                undefined -> ok;
-                {M, F, A} -> apply(M, F, A);
-                Fun -> Fun()
-            end
-        end,
-    case Callback() of
-        ok ->
-            {ok, State};
-        {ok, Pid} ->
-            erlang:link(Pid),
-            {ok, State#state{pid = Pid}};
-        {error, Reason} ->
-            {error, Reason}
+schedule_next_keep_alive(Driver, After) ->
+    case erlang:function_exported(Driver, keepalive, 1) of
+        true ->
+            erlang:send_after(After, self(), {keep_alive, After});
+        false ->
+            ok
     end.
-
-hand_unregister(#state{key = Key, ref = TRef, driver = Driver} = State) ->
-    TRef =/= undefined andalso erlang:cancel_timer(TRef),
-    Driver:unregister(Key),
-    State#state{pid = undefined}.
