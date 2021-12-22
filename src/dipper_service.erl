@@ -56,7 +56,7 @@ handle_cast(_Request, State = #state{}) ->
 
 
 handle_info({keep_alive, Next}, #state{driver = Driver, count = Count } = State) ->
-    TimeRef = schedule_next_keep_alive(Next),
+    TimeRef = schedule_next_keep_alive(Driver, Next),
     case Driver:keepalive(State#state.child_state) of
         {ok, ChildState} ->
             {noreply, State#state{count = 0, child_state = ChildState, next_ref = TimeRef}};
