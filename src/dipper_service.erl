@@ -10,23 +10,23 @@
 -record(state, {driver, next_ref, child_state, count = 0}).
 -define(SERVER(Name), list_to_atom(lists:concat([Name, '_service']))).
 
--spec register(Driver, Name, WorkerArgs) -> supervisor:startlink_ret() when
+-spec register(Name, Driver, WorkerArgs) -> supervisor:startlink_ret() when
     Driver :: module(),
     Name :: atom(),
     WorkerArgs :: any().
-register(Driver, Name, WorkerArgs) ->
-    supervisor:start_child(dipper_service, [Driver, Name, WorkerArgs]).
+register(Name, Driver, WorkerArgs) ->
+    supervisor:start_child(dipper_service, [Name, Driver, WorkerArgs]).
 
 -spec unregister(Name :: atom()) -> ok.
 unregister(Name) ->
     gen_server:call(?SERVER(Name), unregister).
 
 
-start_link(Driver, Name, WorkerArgs) ->
-    gen_server:start_link({local, ?SERVER(Name)}, ?MODULE, [Driver, Name, WorkerArgs], []).
+start_link(Name, Driver, WorkerArgs) ->
+    gen_server:start_link({local, ?SERVER(Name)}, ?MODULE, [Name, Driver, WorkerArgs], []).
 
 
-init([Driver, Name, WorkerArgs]) ->
+init([Name, Driver, WorkerArgs]) ->
     State = #state{
         driver = Driver
     },
@@ -55,7 +55,7 @@ handle_cast(_Request, State = #state{}) ->
     {noreply, State}.
 
 
-handle_info({keep_alive, Next}, #state{driver = Driver, count = Count } = State) ->
+handle_info({keep_alive, Next}, #state{driver = Driver, count = Count} = State) ->
     TimeRef = schedule_next_keep_alive(Driver, Next),
     case Driver:keepalive(State#state.child_state) of
         {ok, ChildState} ->
@@ -70,14 +70,30 @@ handle_info({keep_alive, Next}, #state{driver = Driver, count = Count } = State)
             end
     end;
 
-handle_info(_Info, State) ->
-    {noreply, State}.
+handle_info({'DOWN', _Ref, process, Pid, Reason}, State) ->
+    handle_msg({'DOWN', Pid, Reason}, State);
+
+handle_info(Info, State) ->
+    handle_msg(Info, State).
 
 terminate(_Reason, #state{}) ->
     ok.
 
 code_change(_OldVsn, State = #state{}, _Extra) ->
     {ok, State}.
+
+handle_msg(Msg, #state{driver = Driver} = State) ->
+    case erlang:function_exported(Driver, handle, 2) of
+        true ->
+            case Driver:handle(Msg, State#state.child_state) of
+                {ok, ChildState} ->
+                    {noreply, State#state{child_state = ChildState}};
+                {error, Reason} ->
+                    {stop, Reason, State}
+            end;
+        false ->
+            {noreply, State}
+    end.
 
 schedule_next_keep_alive(Driver, After) ->
     case erlang:function_exported(Driver, keepalive, 1) of
@@ -86,3 +102,5 @@ schedule_next_keep_alive(Driver, After) ->
         false ->
             ok
     end.
+
+

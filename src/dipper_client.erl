@@ -1,34 +1,36 @@
 -module(dipper_client).
 -behaviour(gen_server).
 %% API
--export([watch/3, stop_watch/1, start_link/3]).
+-export([start_watch/3, stop_watch/1, start_link/3]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
--record(state, {driver, child_state}).
+-record(state, {name, driver, child_state}).
 -define(SERVER(Name), list_to_atom(lists:concat([Name, '_watcher']))).
 
 
--spec watch(Driver, Name, WorkerArgs) -> {ok, pid()} | {error, Reason :: any()} when
+-spec start_watch(Name, Driver, WorkerArgs) -> {ok, pid()} | {error, Reason :: any()} when
     Driver :: module(),
     Name :: atom(),
     WorkerArgs :: any().
-watch(Driver, Name, WorkerArgs) ->
-    supervisor:start_child(dipper_client, [Driver, Name, WorkerArgs]).
+start_watch(Name, Driver, WorkerArgs) ->
+    supervisor:start_child(dipper_client, [Name, Driver, WorkerArgs]).
 
 -spec stop_watch(Name :: atom()) -> ok.
 stop_watch(Name) ->
     gen_server:call(?SERVER(Name), stop).
 
-start_link(Driver, Name, WorkerArgs) ->
-    gen_server:start_link({local, ?SERVER(Name)}, ?MODULE, [Driver, Name, WorkerArgs], []).
+start_link(Name, Driver, WorkerArgs) ->
+    gen_server:start_link({local, ?SERVER(Name)}, ?MODULE, [Name, Driver, WorkerArgs], []).
 
 
-init([Driver, Name, WorkerArgs]) ->
+init([Name, Driver, WorkerArgs]) ->
     State = #state{
+        name = Name,
         driver = Driver
     },
     case Driver:start_watch(Name, WorkerArgs) of
-        {ok, Service, ChildState} ->
-            {ok, do_event(Service, State#state{child_state = ChildState})};
+        {ok, Events, ChildState} ->
+            dipper_event:add(Name, Events),
+            {ok, State#state{child_state = ChildState}};
         {error, Reason} ->
             {stop, Reason}
     end.
@@ -47,16 +49,12 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Request, State) ->
     {noreply, State}.
 
-handle_info(Msg, #state{driver = Driver} = State) ->
-    case Driver:do_watch(Msg, State#state.child_state) of
-        {ok, Service, ChildState} ->
-            {noreply, do_event(Service, State#state{child_state = ChildState})};
-        {error, Reason} ->
-            {stop, Reason, State}
-    end;
 
-handle_info(_Info, State) ->
-    {noreply, State}.
+handle_info({'DOWN', _Ref, process, Pid, Reason}, State) ->
+    handle_msg({'DOWN', Pid, Reason}, State);
+
+handle_info(Info, State) ->
+    handle_msg(Info, State).
 
 terminate(_Reason, _State) ->
     ok.
@@ -64,7 +62,18 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-
-do_event(Service, State) ->
-    logger:info("do_event ~p~n", [Service]),
-    State.
+handle_msg(Msg, #state{name = Name, driver = Driver} = State) ->
+    case erlang:function_exported(Driver, handle, 2) of
+        true ->
+            case Driver:handle(Msg, State#state.child_state) of
+                {ok, ChildState} ->
+                    {noreply, State#state{child_state = ChildState}};
+                {ok, Events, ChildState} ->
+                    dipper_event:add(Name, Events),
+                    {noreply, State#state{child_state = ChildState}};
+                {error, Reason} ->
+                    {stop, Reason, State}
+            end;
+        false ->
+            {noreply, State}
+    end.

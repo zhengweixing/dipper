@@ -26,6 +26,12 @@ init([]) ->
     },
     Children = [
         #{
+            id => dipper_event,
+            start => {dipper_event, start_link, []},
+            restart => permanent, shutdown => 2000, type => supervisor,
+            modules => [dipper_event]
+        },
+        #{
             id => dipper_service,
             start => {dipper_worker_sup, start_link, [dipper_service]},
             restart => transient, shutdown => 2000, type => supervisor,
@@ -38,4 +44,5 @@ init([]) ->
             modules => [dipper_worker_sup]
         }
     ],
+    dipper:start(),
     {ok, {SupFlags, Children}}.
