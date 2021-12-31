@@ -1,22 +1,24 @@
-%%%-------------------------------------------------------------------
-%%% @doc
-%%%
-%%% @end
-%%%-------------------------------------------------------------------
 -module(eetcd_driver).
-%%-behavior(dipper_driver).
+-behavior(dipper_service).
+-behavior(dipper_watch).
 
 -record(state, {name, lease_id, worker_args, pid, conn}).
 %% API
--export([register/2, keepalive/1, unregister/1, start_watch/2, stop_watch/1, handle/2]).
+-export([register/2, keepalive/1, unregister/1, start_watch/2, stop_watch/1, handle_msg/2]).
 
--type worker_args() :: #{}.
+-type worker_args() :: #{
+    ttl => integer(),
+    key => binary(),
+    value => binary(),
+    endpoints => [{Host :: string(), Port :: integer()}]
+}.
+
 -spec register(Name, WorkerArgs) -> {ok, State} | {error, any()} when
-    Name :: atom(),
+    Name :: dipper:name(),
     WorkerArgs :: worker_args(),
     State :: #state{}.
 register(Name, WorkerArgs) ->
-    case init(Name, WorkerArgs) of
+    case start_connect(Name, WorkerArgs) of
         ok ->
             #{ttl := TTL, key := Key, value := Value} = WorkerArgs,
             Ctx = eetcd_kv:new(Name),
@@ -60,25 +62,25 @@ keepalive(#state{name = Name, lease_id = LeaseId, pid = Pid} = State) ->
 -spec unregister(State) -> ok | {error, any()} when
     State :: #state{}.
 unregister(#state{name = Name, pid = Pid, worker_args = #{ key := Key }}) ->
-    gen_server:cast(Pid, close),
     RangeEnd = eetcd:get_prefix_range_end(Key),
     Ctx = eetcd_kv:new(Name),
     Ctx1 = eetcd_kv:with_key(Ctx, Key),
     Ctx2 = eetcd_kv:with_range_end(Ctx1, RangeEnd),
     case eetcd_kv:delete(Ctx2) of
         {ok, #{deleted := _Count, header := #{}}} ->
+            gen_server:cast(Pid, close),
             ok;
         {error, Reason} ->
             {error, Reason}
     end.
 
 -spec start_watch(Name, WorkerArgs) -> {ok, Service, State} | {error, any()} when
-    Name :: atom(),
+    Name :: dipper:name(),
     WorkerArgs :: worker_args(),
-    Service :: [{'PUT' | 'DELETE' | 'ADD', Key :: binary()}],
+    Service :: [dipper:event()],
     State :: #state{}.
 start_watch(Name, WorkerArgs) ->
-    case init(Name, WorkerArgs) of
+    case start_connect(Name, WorkerArgs) of
         ok ->
             case get_exist_services(Name, WorkerArgs) of
                 {ok, Events, Revision} ->
@@ -111,14 +113,14 @@ stop_watch(#state{conn = Conn}) ->
             {error, Reason}
     end.
 
--spec handle(Info, State) -> {ok, State} | {error, any()} when
+-spec handle_msg(Info, State) -> {ok, State} | {error, any()} when
     Info :: any(),
     State :: #state{}.
-handle({'DOWN', Pid, Reason}, #state{pid = Pid} = State) ->
+handle_msg({'DOWN', Pid, Reason}, #state{pid = Pid} = State) ->
     logger:error("DOWN ~p ~p~n", [Pid, Reason]),
     keepalive(State);
 
-handle({gun_data, _, _, _, _} = Msg, #state{conn = Conn, name = Name} = State) ->
+handle_msg({gun_data, _, _, _, _} = Msg, #state{conn = Conn, name = Name} = State) ->
     case eetcd_watch:watch_stream(Conn, Msg) of
         {ok, NewConn, #{events := Events}} ->
             Events1 = update_services(Events, []),
@@ -133,27 +135,28 @@ handle({gun_data, _, _, _, _} = Msg, #state{conn = Conn, name = Name} = State) -
             {ok, State}
     end;
 
-handle(_Info, State) ->
+handle_msg(_Info, State) ->
     {ok, State}.
 
 
--spec init(Name :: atom(), WorkerArgs :: worker_args()) ->
+-spec start_connect(Name :: dipper:name(), WorkerArgs :: worker_args()) ->
     ok | {error, any()}.
-init(Name, _WorkerArgs) ->
+start_connect(Name, #{endpoints := EndPoints}) ->
+    ok = application:ensure_started(cowlib),
     ok = application:ensure_started(gun),
     ok = application:ensure_started(eetcd),
-    Endpoints = ["127.0.0.1:2379"],
+    Endpoints = [lists:concat([Host, ":", Port]) || {Host, Port} <- EndPoints],
     case eetcd:open(Name, Endpoints) of
         {ok, _} ->
             ok;
-        {error, [{_,already_started}]} ->
+        {error, [{_, already_started}]} ->
             ok;
         {error, Reason} ->
             {error, Reason}
     end.
 
 -spec get_exist_services(Name, WorkerArgs) -> {ok, Services, Revision} | {error, Reason :: any()} when
-    Name :: atom(),
+    Name :: dipper:name(),
     WorkerArgs :: worker_args(),
     Services :: map(),
     Revision :: integer().

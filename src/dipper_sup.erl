@@ -38,10 +38,10 @@ init([]) ->
             modules => [dipper_worker_sup]
         },
         #{
-            id => dipper_client,
-            start => {dipper_worker_sup, start_link, [dipper_client]},
+            id => dipper_watch,
+            start => {dipper_worker_sup, start_link, [dipper_watch]},
             restart => transient, shutdown => 2000, type => supervisor,
-            modules => [dipper_worker_sup]
+            modules => [dipper_watch]
         }
     ],
     dipper:start(),

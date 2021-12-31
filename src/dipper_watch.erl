@@ -1,21 +1,34 @@
--module(dipper_client).
+-module(dipper_watch).
 -behaviour(gen_server).
 %% API
--export([start_watch/3, stop_watch/1, start_link/3]).
+-export([start/3, stop/1, start_link/3]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
+
 -record(state, {name, driver, child_state}).
+
 -define(SERVER(Name), list_to_atom(lists:concat([Name, '_watcher']))).
 
+-callback start_watch(Name :: dipper:name(), WorkerArgs :: map()) ->
+    {ok, Service :: [dipper:event()], State :: any()} |
+    {error, Reason :: any()}.
 
--spec start_watch(Name, Driver, WorkerArgs) -> {ok, pid()} | {error, Reason :: any()} when
+-callback stop_watch(State :: any()) ->
+    ok | {error, Reason :: any()}.
+
+-callback handle_msg(Info :: any(), State :: any()) ->
+    {ok, NewState :: any()} | {error, Reason :: any()}.
+
+-optional_callbacks([handle_msg/2]).
+
+-spec start(Name, Driver, WorkerArgs) -> {ok, pid()} | {error, Reason :: any()} when
     Driver :: module(),
-    Name :: atom(),
+    Name :: dipper:name(),
     WorkerArgs :: any().
-start_watch(Name, Driver, WorkerArgs) ->
-    supervisor:start_child(dipper_client, [Name, Driver, WorkerArgs]).
+start(Name, Driver, WorkerArgs) ->
+    supervisor:start_child(dipper_watch, [Name, Driver, WorkerArgs]).
 
--spec stop_watch(Name :: atom()) -> ok.
-stop_watch(Name) ->
+-spec stop(Name :: dipper:name()) -> ok.
+stop(Name) ->
     gen_server:call(?SERVER(Name), stop).
 
 start_link(Name, Driver, WorkerArgs) ->
@@ -63,9 +76,9 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 handle_msg(Msg, #state{name = Name, driver = Driver} = State) ->
-    case erlang:function_exported(Driver, handle, 2) of
+    case erlang:function_exported(Driver, handle_msg, 2) of
         true ->
-            case Driver:handle(Msg, State#state.child_state) of
+            case Driver:handle_msg(Msg, State#state.child_state) of
                 {ok, ChildState} ->
                     {noreply, State#state{child_state = ChildState}};
                 {ok, Events, ChildState} ->

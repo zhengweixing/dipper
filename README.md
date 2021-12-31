@@ -2,24 +2,34 @@
 
 watch and register service for etcd, zookeeper.
 
-## register service
+## Quick Start
+### 1. register & unregister
 ```erlang
-Value = jiffy:encode(#{
-    port => 11234,
-    ip => <<"127.0.0.1">>
-}),
+%% register service
 dipper_service:register(server1, eetcd_driver,  #{ 
     ttl => 10,
     key => <<"grpc/auth/1.0/127.0.0.1">>,
-    value => Value
+    value => <<"{\"port\":1123}">>,
+    endpoints => [{"127.0.0.1", 2379}]
 }).
+
+%% unregister service
+dipper_service:unregister(server1).
 ```
 
-## watch service
+### 2. watch service
 ```erlang
-dipper_client:start_watch(watch1, eetcd_driver, #{
-    key => "grpc/auth"
+%% start watch
+dipper_watch:start(watch1, eetcd_driver, #{
+    key => "grpc/auth",
+    endpoints => [{"127.0.0.1", 2379}]
 }).
+
+%% get service
+dipper:get_service(watch1).
+
+%% stop watch
+dipper_watch:stop(watch1).
 ```
 ## subscribe & unsubscribe
 
@@ -29,10 +39,4 @@ Ref = dipper:subscribe(watch1, fun ?MODULE:start/1).
 
 %% unsubscribe
 dipper:unsubscribe(Ref).
-```
-
-## get service
-```erlang
-%% get service
-dipper:get_all_service(Watch1).
 ```
