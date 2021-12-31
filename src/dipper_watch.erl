@@ -16,14 +16,15 @@
     ok | {error, Reason :: any()}.
 
 -callback handle_msg(Info :: any(), State :: any()) ->
-    {ok, NewState :: any()} | {error, Reason :: any()}.
+    ok | {ok, NewState :: any()} | {ok, Reply, NewState :: any()} | {stop, Reason :: any()} when
+    Reply :: {event, [dipper:event()]} | any().
 
 -optional_callbacks([handle_msg/2]).
 
 -spec start(Name, Driver, WorkerArgs) -> {ok, pid()} | {error, Reason :: any()} when
     Driver :: module(),
     Name :: dipper:name(),
-    WorkerArgs :: any().
+    WorkerArgs :: map().
 start(Name, Driver, WorkerArgs) ->
     supervisor:start_child(dipper_watch, [Name, Driver, WorkerArgs]).
 
@@ -79,12 +80,16 @@ handle_msg(Msg, #state{name = Name, driver = Driver} = State) ->
     case erlang:function_exported(Driver, handle_msg, 2) of
         true ->
             case Driver:handle_msg(Msg, State#state.child_state) of
+                ok ->
+                    {noreply, State};
                 {ok, ChildState} ->
                     {noreply, State#state{child_state = ChildState}};
-                {ok, Events, ChildState} ->
+                {ok, {event, Events}, ChildState} ->
                     dipper_event:add(Name, Events),
                     {noreply, State#state{child_state = ChildState}};
-                {error, Reason} ->
+                {ok, Reply, ChildState} ->
+                    {reply, Reply, State#state{child_state = ChildState}};
+                {stop, Reason} ->
                     {stop, Reason, State}
             end;
         false ->

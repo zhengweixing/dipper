@@ -124,7 +124,7 @@ handle_msg({gun_data, _, _, _, _} = Msg, #state{conn = Conn, name = Name} = Stat
     case eetcd_watch:watch_stream(Conn, Msg) of
         {ok, NewConn, #{events := Events}} ->
             Events1 = update_services(Events, []),
-            {ok, Events1, State#state{conn = NewConn}};
+            {ok, {event, Events1}, State#state{conn = NewConn}};
         {more, NewConn} ->
             {ok, State#state{conn = NewConn}};
         {error, Reason} ->
@@ -132,7 +132,7 @@ handle_msg({gun_data, _, _, _, _} = Msg, #state{conn = Conn, name = Name} = Stat
             #{revision := Revision} = Conn,
             watch_services_event(Revision, State);
         unknown ->
-            {ok, State}
+            ok
     end;
 
 handle_msg(_Info, State) ->

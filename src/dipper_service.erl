@@ -28,7 +28,7 @@
 -spec register(Name, Driver, WorkerArgs) -> supervisor:startlink_ret() when
     Driver :: module(),
     Name :: dipper:name(),
-    WorkerArgs :: any().
+    WorkerArgs :: map().
 register(Name, Driver, WorkerArgs) ->
     supervisor:start_child(dipper_service, [Name, Driver, WorkerArgs]).
 
@@ -101,9 +101,13 @@ handle_msg(Msg, #state{driver = Driver} = State) ->
     case erlang:function_exported(Driver, handle_msg, 2) of
         true ->
             case Driver:handle_msg(Msg, State#state.child_state) of
+                ok ->
+                    {noreply, State};
                 {ok, ChildState} ->
                     {noreply, State#state{child_state = ChildState}};
-                {error, Reason} ->
+                {ok, Reply, ChildState} ->
+                    {reply, Reply, State#state{child_state = ChildState}};
+                {stop, Reason} ->
                     {stop, Reason, State}
             end;
         false ->
