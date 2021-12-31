@@ -90,7 +90,7 @@ start_watch(Name, WorkerArgs) ->
                     },
                     case watch_services_event(Revision, State) of
                         {ok, NewState} ->
-                            Events1 = update_services(Events, []),
+                            Events1 = format_event(Events, []),
                             {ok, Events1, NewState};
                         {error, Reason} ->
                             {error, Reason}
@@ -123,8 +123,8 @@ handle_msg({'DOWN', Pid, Reason}, #state{pid = Pid} = State) ->
 handle_msg({gun_data, _, _, _, _} = Msg, #state{conn = Conn, name = Name} = State) ->
     case eetcd_watch:watch_stream(Conn, Msg) of
         {ok, NewConn, #{events := Events}} ->
-            Events1 = update_services(Events, []),
-            {ok, Events1, State#state{conn = NewConn}};
+            Events1 = format_event(Events, []),
+            {ok, {event, Events1}, State#state{conn = NewConn}};
         {more, NewConn} ->
             {ok, State#state{conn = NewConn}};
         {error, Reason} ->
@@ -132,7 +132,7 @@ handle_msg({gun_data, _, _, _, _} = Msg, #state{conn = Conn, name = Name} = Stat
             #{revision := Revision} = Conn,
             watch_services_event(Revision, State);
         unknown ->
-            {ok, State}
+            ok
     end;
 
 handle_msg(_Info, State) ->
@@ -188,9 +188,11 @@ watch_services_event(Revision, #state{name = Name, worker_args = #{key := Key}} 
             {error, Reason}
     end.
 
-
-update_services([], Acc) -> lists:reverse(Acc);
-update_services([#{kv := #{key := Key, value := Value}, type := EventType} | Events], Acc) ->
-    update_services(Events, [{EventType, Key, Value} | Acc]);
-update_services([#{key := Key, value := Value} | Events], Acc) ->
-    update_services(Events, [{'ADD', Key, Value} | Acc]).
+-spec format_event(Event, Acc) -> Acc when
+    Acc :: [dipper:event()],
+    Event :: list().
+format_event([], Acc) -> lists:reverse(Acc);
+format_event([#{kv := #{key := Key, value := Value}, type := EventType} | Events], Acc) ->
+    format_event(Events, [{EventType, Key, Value} | Acc]);
+format_event([#{key := Key, value := Value} | Events], Acc) ->
+    format_event(Events, [{'ADD', Key, Value} | Acc]).
