@@ -5,7 +5,7 @@
 
 all() ->
     [
-        app_check
+        
     ].
 
 init_per_suite(Config) ->

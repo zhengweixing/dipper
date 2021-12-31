@@ -26,7 +26,7 @@ dipper_watch:start(watch1, eetcd_driver, #{
 }).
 
 %% get service
-dipper:get_service(watch1).
+dipper:get_services(watch1).
 
 %% stop watch
 dipper_watch:stop(watch1).
