@@ -10,7 +10,7 @@
 -record(state, {}).
 
 -spec add(Name, Events) -> ok when
-    Name :: atom(),
+    Name :: dipper:name(),
     Events :: [dipper:event()].
 add(Name, Events) ->
     lists:foreach(

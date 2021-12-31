@@ -7,17 +7,32 @@
 -export([register/3, unregister/1]).
 
 -export([start_link/3, init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
+
 -record(state, {driver, next_ref, child_state, count = 0}).
+
 -define(SERVER(Name), list_to_atom(lists:concat([Name, '_service']))).
+
+
+-callback register(Name :: dipper:name(), WorkerArgs :: map()) ->
+    {ok, State :: any()} | {error, Reason :: any()}.
+
+-callback keepalive(State :: any()) ->
+    ok | {error, Reason :: any()}.
+
+-callback unregister(State :: any()) ->
+    ok | {error, Reason :: any()}.
+
+-optional_callbacks([keepalive/1]).
+
 
 -spec register(Name, Driver, WorkerArgs) -> supervisor:startlink_ret() when
     Driver :: module(),
-    Name :: atom(),
+    Name :: dipper:name(),
     WorkerArgs :: any().
 register(Name, Driver, WorkerArgs) ->
     supervisor:start_child(dipper_service, [Name, Driver, WorkerArgs]).
 
--spec unregister(Name :: atom()) -> ok.
+-spec unregister(Name :: dipper:name()) -> ok.
 unregister(Name) ->
     gen_server:call(?SERVER(Name), unregister).
 
@@ -83,9 +98,9 @@ code_change(_OldVsn, State = #state{}, _Extra) ->
     {ok, State}.
 
 handle_msg(Msg, #state{driver = Driver} = State) ->
-    case erlang:function_exported(Driver, handle, 2) of
+    case erlang:function_exported(Driver, handle_msg, 2) of
         true ->
-            case Driver:handle(Msg, State#state.child_state) of
+            case Driver:handle_msg(Msg, State#state.child_state) of
                 {ok, ChildState} ->
                     {noreply, State#state{child_state = ChildState}};
                 {error, Reason} ->
@@ -102,5 +117,3 @@ schedule_next_keep_alive(Driver, After) ->
         false ->
             ok
     end.
-
-
