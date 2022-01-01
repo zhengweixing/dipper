@@ -88,7 +88,7 @@ start_watch(Name, WorkerArgs) ->
                         name = Name,
                         worker_args = WorkerArgs
                     },
-                    case watch_services_event(Revision, State) of
+                    case watch_services_event(Revision + 1, State) of
                         {ok, NewState} ->
                             Events1 = format_event(Events, []),
                             {ok, Events1, NewState};
