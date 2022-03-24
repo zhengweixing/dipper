@@ -16,3 +16,4 @@ deps
 _build/
 _checkouts/
 *.iml
+.idea
